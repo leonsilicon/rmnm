@@ -1,0 +1,46 @@
+{
+  "name": "rmnm-linux-x64-musl",
+  "version": "0.1.0",
+  "cpu": [
+    "x64"
+  ],
+  "main": "rmnm.linux-x64-musl.node",
+  "files": [
+    "rmnm.linux-x64-musl.node"
+  ],
+  "description": "Find and delete every nested node_modules in a project as fast as possible (napi-rs / Rust)",
+  "keywords": [
+    "node_modules",
+    "monorepo",
+    "workspace",
+    "clean",
+    "cleaner",
+    "delete",
+    "napi-rs",
+    "rust",
+    "bun",
+    "pnpm"
+  ],
+  "author": "Leon Si",
+  "homepage": "https://github.com/leonsilicon/rmnm#readme",
+  "license": "MIT",
+  "engines": {
+    "node": ">= 18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leonsilicon/rmnm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/leonsilicon/rmnm/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "musl"
+  ]
+}

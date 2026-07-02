@@ -168,18 +168,30 @@ fn remove_all_parallel(dirs: Vec<PathBuf>) -> Vec<(PathBuf, Option<String>)> {
     .collect()
 }
 
+/// Build a `TrashContext`. On macOS we opt into the `NsFileManager` backend —
+/// it calls `trashItemAtURL` directly, which is faster than the default
+/// Finder/osascript path and silent (no delete sound), while still recording
+/// the "Put Back" metadata. On Linux (freedesktop) and Windows the default
+/// backend is already the fast native trash, so no tuning is needed.
+#[cfg(target_os = "macos")]
+fn new_trash_context() -> trash::TrashContext {
+  use trash::macos::{DeleteMethod, TrashContextExtMacos};
+  let mut ctx = trash::TrashContext::default();
+  ctx.set_delete_method(DeleteMethod::NsFileManager);
+  ctx
+}
+
+#[cfg(not(target_os = "macos"))]
+fn new_trash_context() -> trash::TrashContext {
+  trash::TrashContext::default()
+}
+
 /// Move each directory to the OS Trash. Trashing is a single native call per
 /// item and, for same-volume items, an O(1) rename — so this runs fast without
 /// a thread pool. Any item the native trash call rejects falls back to a direct
 /// removal so `rmnm` always makes progress.
 fn trash_all(dirs: Vec<PathBuf>) -> Vec<DeleteResult> {
-  use trash::macos::{DeleteMethod, TrashContextExtMacos};
-
-  let mut ctx = trash::TrashContext::default();
-  // `NsFileManager` uses `trashItemAtURL` directly — faster than the default
-  // Finder/osascript path and silent (no delete sound), while still recording
-  // the "Put Back" metadata so items restore to their original location.
-  ctx.set_delete_method(DeleteMethod::NsFileManager);
+  let ctx = new_trash_context();
 
   dirs
     .into_iter()

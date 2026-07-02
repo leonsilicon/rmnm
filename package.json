@@ -27,13 +27,6 @@
     "bun",
     "pnpm"
   ],
-  "os": [
-    "darwin"
-  ],
-  "cpu": [
-    "arm64",
-    "x64"
-  ],
   "bin": {
     "rmnm": "bin/rmnm.js"
   },
@@ -41,25 +34,44 @@
     "index.js",
     "index.d.ts",
     "bin/rmnm.js",
-    "rmnm.darwin-universal.node",
     "README.md",
     "LICENSE"
   ],
   "napi": {
     "binaryName": "rmnm",
     "targets": [
-      "universal-apple-darwin",
+      "x86_64-apple-darwin",
       "aarch64-apple-darwin",
-      "x86_64-apple-darwin"
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-musl",
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc"
     ]
   },
   "engines": {
     "node": ">= 18"
   },
+  "optionalDependencies": {
+    "rmnm-darwin-x64": "0.1.0",
+    "rmnm-darwin-arm64": "0.1.0",
+    "rmnm-linux-x64-gnu": "0.1.0",
+    "rmnm-linux-arm64-gnu": "0.1.0",
+    "rmnm-linux-x64-musl": "0.1.0",
+    "rmnm-linux-arm64-musl": "0.1.0",
+    "rmnm-win32-x64-msvc": "0.1.0",
+    "rmnm-win32-arm64-msvc": "0.1.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "build": "napi build --platform --release --target aarch64-apple-darwin && napi build --platform --release --target x86_64-apple-darwin && napi universalize",
+    "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
-    "prepublishOnly": "napi build --platform --release --target aarch64-apple-darwin && napi build --platform --release --target x86_64-apple-darwin && napi universalize",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm",
     "test": "cargo test",
     "version": "napi version"
   },

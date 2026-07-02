@@ -22,14 +22,12 @@ deleted: 13/13 node_modules (2.4 GB) in 412ms
 By default `rmnm` **permanently deletes** each `node_modules` in parallel —
 space is reclaimed immediately.
 
-Pass **`-t` / `--trash`** to move them to the Trash instead. On the same volume
-that is a directory *rename* — O(1), effectively instant no matter how many
-files the tree holds — and recoverable in Finder ("Put Back"). The disk space is
-reclaimed when you empty the Trash. A `node_modules` on a *different* volume
-(rare) can't be renamed instantly, so those fall back to a direct delete.
-
-> **macOS only.** The published package bundles a universal (arm64 + Intel)
-> native binary; `npm`/`bun` will refuse to install it on other platforms.
+Pass **`-t` / `--trash`** to move them to the OS trash instead (Finder Trash on
+macOS, the freedesktop trash on Linux, the Recycle Bin on Windows). On the same
+volume that is a directory *rename* — O(1), effectively instant no matter how
+many files the tree holds — and recoverable from the trash. The disk space is
+reclaimed when you empty it. A `node_modules` on a *different* volume (rare)
+can't be renamed instantly, so those fall back to a direct delete.
 
 ## Install
 
@@ -37,6 +35,10 @@ reclaimed when you empty the Trash. A `node_modules` on a *different* volume
 npm install -g rmnm
 # or: bun install -g rmnm
 ```
+
+The right prebuilt native binary is pulled in automatically for your platform
+via `optionalDependencies`. Supported: **macOS** (arm64, x64), **Linux** (arm64
+& x64, glibc & musl), **Windows** (arm64, x64).
 
 Then from any repo root:
 
@@ -48,7 +50,7 @@ rmnm
 
 ```sh
 bun install
-bun run build      # builds both arches + a universal rmnm.darwin-universal.node
+bun run build      # builds the native addon for your host → rmnm.<platform>.node
 bun link           # makes `rmnm` available on your PATH
 ```
 
