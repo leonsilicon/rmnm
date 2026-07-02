@@ -13,7 +13,7 @@ Arguments:
 
 Options:
   -t, --trash          Move to the Trash instead of deleting (instant, recoverable)
-  -n, --dry-run        List what would be cleared; touch nothing
+  -l, --list           List what would be cleared; touch nothing
       --no-measure     Skip sizing each node_modules (faster; sizes show as 0)
       --json           Print the raw result as JSON
   -y, --yes            Skip the confirmation prompt
@@ -31,7 +31,7 @@ when you empty the Trash.
 function parseArgs(argv) {
   const opts = {
     root: undefined,
-    dryRun: false,
+    list: false,
     measure: true,
     trash: false,
     json: false,
@@ -45,9 +45,9 @@ function parseArgs(argv) {
       case "--help":
         opts.help = true;
         break;
-      case "-n":
-      case "--dry-run":
-        opts.dryRun = true;
+      case "-l":
+      case "--list":
+        opts.list = true;
         break;
       case "-t":
       case "--trash":
@@ -97,7 +97,7 @@ function relativizePath(root, p) {
 }
 
 // Confirmation prompt (synchronous) so a bare `rnmn` in a real repo can't nuke
-// node_modules by a stray keystroke. Skipped with -y, in --dry-run, or when not
+// node_modules by a stray keystroke. Skipped with -y, with --list, or when not
 // attached to a TTY (CI / piped).
 function confirm(question) {
   if (!process.stdin.isTTY) return true;
@@ -132,7 +132,7 @@ function main() {
           scan.workspacePackages.length === 1 ? "" : "s"
         })`;
 
-  if (opts.json && opts.dryRun) {
+  if (opts.json && opts.list) {
     process.stdout.write(JSON.stringify(scan, replacer, 2) + "\n");
     return;
   }
@@ -154,8 +154,8 @@ function main() {
     process.stdout.write(`${size}  ${relativizePath(scan.root, dir.path)}\n`);
   }
 
-  if (opts.dryRun) {
-    process.stdout.write(`\n(dry run — nothing ${opts.trash ? "trashed" : "deleted"})\n`);
+  if (opts.list) {
+    process.stdout.write(`\n(list only — nothing ${opts.trash ? "trashed" : "deleted"})\n`);
     return;
   }
 

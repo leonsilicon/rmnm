@@ -28,20 +28,28 @@ files the tree holds — and recoverable in Finder ("Put Back"). The disk space 
 reclaimed when you empty the Trash. A `node_modules` on a *different* volume
 (rare) can't be renamed instantly, so those fall back to a direct delete.
 
+> **macOS only.** The published package bundles a universal (arm64 + Intel)
+> native binary; `npm`/`bun` will refuse to install it on other platforms.
+
 ## Install
 
-Build the native addon and link the `rnmn` binary globally:
-
 ```sh
-bun install
-bun run build      # release build → rnmn.<platform>.node + index.js/index.d.ts
-bun link           # makes `rnmn` available on your PATH
+npm install -g rnmn
+# or: bun install -g rnmn
 ```
 
 Then from any repo root:
 
 ```sh
 rnmn
+```
+
+### From source
+
+```sh
+bun install
+bun run build      # builds both arches + a universal rnmn.darwin-universal.node
+bun link           # makes `rnmn` available on your PATH
 ```
 
 ## What it clears
@@ -67,7 +75,7 @@ Arguments:
 
 Options:
   -t, --trash          Move to the Trash instead of deleting (instant, recoverable)
-  -n, --dry-run        List what would be cleared; touch nothing
+  -l, --list           List what would be cleared; touch nothing
       --no-measure     Skip sizing each node_modules (faster; sizes show as 0)
       --json           Print the raw result as JSON
   -y, --yes            Skip the confirmation prompt
@@ -77,7 +85,7 @@ Options:
 By default `rnmn` permanently deletes each `node_modules`, after printing what it
 found and asking for confirmation (skipped with `-y`, or when stdout isn't a TTY,
 e.g. in CI). Use `-t` to move them to the Trash instead (space reclaimed when you
-empty it), or `--dry-run` to preview without touching anything.
+empty it), or `-l` to list what would be cleared without touching anything.
 
 ## Workspace resolution
 

@@ -1,20 +1,38 @@
 {
   "name": "rnmn",
   "version": "0.1.0",
-  "description": "Find and delete every nested node_modules in a workspace as fast as possible (napi-rs / Rust)",
+  "description": "Find and delete every nested node_modules in a project as fast as possible (napi-rs / Rust)",
   "type": "commonjs",
   "main": "index.js",
   "types": "index.d.ts",
   "license": "MIT",
+  "author": "Leon Si",
+  "homepage": "https://github.com/leonsilicon/rnmn#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leonsilicon/rnmn.git"
+  },
+  "bugs": {
+    "url": "https://github.com/leonsilicon/rnmn/issues"
+  },
   "keywords": [
     "node_modules",
     "monorepo",
     "workspace",
     "clean",
+    "cleaner",
+    "delete",
     "napi-rs",
     "rust",
     "bun",
     "pnpm"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
   ],
   "bin": {
     "rnmn": "bin/rnmn.js"
@@ -23,11 +41,14 @@
     "index.js",
     "index.d.ts",
     "bin/rnmn.js",
-    "rnmn.*.node"
+    "rnmn.darwin-universal.node",
+    "README.md",
+    "LICENSE"
   ],
   "napi": {
     "binaryName": "rnmn",
     "targets": [
+      "universal-apple-darwin",
       "aarch64-apple-darwin",
       "x86_64-apple-darwin"
     ]
@@ -36,10 +57,10 @@
     "node": ">= 18"
   },
   "scripts": {
-    "build": "napi build --platform --release",
+    "build": "napi build --platform --release --target aarch64-apple-darwin && napi build --platform --release --target x86_64-apple-darwin && napi universalize",
     "build:debug": "napi build --platform",
-    "artifacts": "napi artifacts",
-    "prepublishOnly": "napi prepublish -t npm",
+    "prepublishOnly": "napi build --platform --release --target aarch64-apple-darwin && napi build --platform --release --target x86_64-apple-darwin && napi universalize",
+    "test": "cargo test",
     "version": "napi version"
   },
   "devDependencies": {
