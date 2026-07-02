@@ -92,7 +92,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.settings.target }}
-          path: ${{ env.APP_NAME }}.*.node
+          # Ship the generated JS loader + types alongside the native binary so
+          # the test job can `require('../index.js')` (these files are gitignored,
+          # not in the checkout).
+          path: |
+            ${{ env.APP_NAME }}.*.node
+            index.js
+            index.d.ts
           if-no-files-found: error
 
   test:
