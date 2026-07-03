@@ -1,6 +1,6 @@
 {
   "name": "remnem",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Find and delete every nested node_modules in a project as fast as possible (Rust binary)",
   "type": "commonjs",
   "license": "MIT",
@@ -36,14 +36,14 @@
     "node": ">= 18"
   },
   "optionalDependencies": {
-    "@leonsilicon/remnem-darwin-x64": "0.1.8",
-    "@leonsilicon/remnem-darwin-arm64": "0.1.8",
-    "@leonsilicon/remnem-linux-x64-gnu": "0.1.8",
-    "@leonsilicon/remnem-linux-arm64-gnu": "0.1.8",
-    "@leonsilicon/remnem-linux-x64-musl": "0.1.8",
-    "@leonsilicon/remnem-linux-arm64-musl": "0.1.8",
-    "@leonsilicon/remnem-win32-x64-msvc": "0.1.8",
-    "@leonsilicon/remnem-win32-arm64-msvc": "0.1.8"
+    "@leonsilicon/remnem-darwin-x64": "0.1.9",
+    "@leonsilicon/remnem-darwin-arm64": "0.1.9",
+    "@leonsilicon/remnem-linux-x64-gnu": "0.1.9",
+    "@leonsilicon/remnem-linux-arm64-gnu": "0.1.9",
+    "@leonsilicon/remnem-linux-x64-musl": "0.1.9",
+    "@leonsilicon/remnem-linux-arm64-musl": "0.1.9",
+    "@leonsilicon/remnem-win32-x64-msvc": "0.1.9",
+    "@leonsilicon/remnem-win32-arm64-msvc": "0.1.9"
   },
   "publishConfig": {
     "access": "public",
