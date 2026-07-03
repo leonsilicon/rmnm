@@ -18,7 +18,7 @@ function assert(cond, msg) {
   }
 }
 
-const root = mkdtempSync(join(tmpdir(), "rmnm-smoke-"));
+const root = mkdtempSync(join(tmpdir(), "remnem-smoke-"));
 try {
   // A tiny workspace: root + one package, each with a node_modules.
   writeFileSync(join(root, "package.json"), JSON.stringify({ name: "smoke-root", workspaces: ["packages/*"] }));
@@ -45,7 +45,7 @@ try {
   assert(!existsSync(join(root, "node_modules")), "root node_modules should be gone");
   assert(existsSync(join(root, "package.json")), "package.json must survive");
 
-  console.log(`OK: rmnm smoke test passed on ${process.platform}/${process.arch}`);
+  console.log(`OK: remnem smoke test passed on ${process.platform}/${process.arch}`);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

@@ -1,3 +1,3 @@
-# `@leonsilicon/rmnm-linux-arm64-gnu`
+# `remnem-linux-arm64-gnu`
 
-This is the **aarch64-unknown-linux-gnu** binary for `@leonsilicon/rmnm`
+This is the **aarch64-unknown-linux-gnu** binary for `remnem`

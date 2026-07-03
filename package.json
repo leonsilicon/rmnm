@@ -1,5 +1,5 @@
 {
-  "name": "@leonsilicon/rmnm",
+  "name": "remnem",
   "version": "0.1.4",
   "description": "Find and delete every nested node_modules in a project as fast as possible (napi-rs / Rust)",
   "type": "commonjs",
@@ -7,13 +7,13 @@
   "types": "index.d.ts",
   "license": "MIT",
   "author": "Leon Si",
-  "homepage": "https://github.com/leonsilicon/rmnm#readme",
+  "homepage": "https://github.com/leonsilicon/remnem#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/leonsilicon/rmnm.git"
+    "url": "git+https://github.com/leonsilicon/remnem.git"
   },
   "bugs": {
-    "url": "https://github.com/leonsilicon/rmnm/issues"
+    "url": "https://github.com/leonsilicon/remnem/issues"
   },
   "keywords": [
     "node_modules",
@@ -28,17 +28,17 @@
     "pnpm"
   ],
   "bin": {
-    "rmnm": "bin/rmnm.js"
+    "remnem": "bin/remnem.js"
   },
   "files": [
     "index.js",
     "index.d.ts",
-    "bin/rmnm.js",
+    "bin/remnem.js",
     "README.md",
     "LICENSE"
   ],
   "napi": {
-    "binaryName": "rmnm",
+    "binaryName": "remnem",
     "targets": [
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",
@@ -54,14 +54,14 @@
     "node": ">= 18"
   },
   "optionalDependencies": {
-    "@leonsilicon/rmnm-darwin-x64": "0.1.4",
-    "@leonsilicon/rmnm-darwin-arm64": "0.1.4",
-    "@leonsilicon/rmnm-linux-x64-gnu": "0.1.4",
-    "@leonsilicon/rmnm-linux-arm64-gnu": "0.1.4",
-    "@leonsilicon/rmnm-linux-x64-musl": "0.1.4",
-    "@leonsilicon/rmnm-linux-arm64-musl": "0.1.4",
-    "@leonsilicon/rmnm-win32-x64-msvc": "0.1.4",
-    "@leonsilicon/rmnm-win32-arm64-msvc": "0.1.4"
+    "remnem-darwin-x64": "0.1.4",
+    "remnem-darwin-arm64": "0.1.4",
+    "remnem-linux-x64-gnu": "0.1.4",
+    "remnem-linux-arm64-gnu": "0.1.4",
+    "remnem-linux-x64-musl": "0.1.4",
+    "remnem-linux-arm64-musl": "0.1.4",
+    "remnem-win32-x64-msvc": "0.1.4",
+    "remnem-win32-arm64-msvc": "0.1.4"
   },
   "publishConfig": {
     "access": "public",

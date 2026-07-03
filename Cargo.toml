@@ -1,10 +1,10 @@
 [package]
-name = "rmnm"
+name = "remnem"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
 description = "Find and delete every nested node_modules in a workspace as fast as possible"
-repository = "https://github.com/leonsilicon/rmnm"
+repository = "https://github.com/leonsilicon/remnem"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

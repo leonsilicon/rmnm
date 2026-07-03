@@ -189,7 +189,7 @@ fn new_trash_context() -> trash::TrashContext {
 /// Move each directory to the OS Trash. Trashing is a single native call per
 /// item and, for same-volume items, an O(1) rename — so this runs fast without
 /// a thread pool. Any item the native trash call rejects falls back to a direct
-/// removal so `rmnm` always makes progress.
+/// removal so `remnem` always makes progress.
 fn trash_all(dirs: Vec<PathBuf>) -> Vec<DeleteResult> {
   let ctx = new_trash_context();
 

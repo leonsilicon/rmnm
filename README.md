@@ -1,11 +1,11 @@
-# rmnm
+# remnem
 
 **r**e**m**ove **n**ode_**m**odules — find every nested `node_modules` in a project (root + all workspaces + any nested ones) and delete them all, as fast as possible.
 
 Written in Rust ([napi-rs](https://napi.rs)) with a parallel directory walker and parallel deletion. Uses the **same workspace resolution as [bun](https://bun.sh/docs/install/workspaces) and [pnpm](https://pnpm.io/pnpm-workspace_yaml)** to describe the workspace layout.
 
 ```
-$ rmnm
+$ remnem
 root: /Users/you/dev/my-monorepo
       package.json workspace (12 packages)
 found 13 node_modules totalling 2.4 GB:
@@ -19,7 +19,7 @@ deleted: 13/13 node_modules (2.4 GB) in 412ms
 
 ## Delete vs. Trash
 
-By default `rmnm` **permanently deletes** each `node_modules` in parallel —
+By default `remnem` **permanently deletes** each `node_modules` in parallel —
 space is reclaimed immediately.
 
 Pass **`-t` / `--trash`** to move them to the OS trash instead (Finder Trash on
@@ -32,8 +32,8 @@ can't be renamed instantly, so those fall back to a direct delete.
 ## Install
 
 ```sh
-npm install -g @leonsilicon/rmnm
-# or: bun install -g @leonsilicon/rmnm
+npm install -g remnem
+# or: bun install -g remnem
 ```
 
 The right prebuilt native binary is pulled in automatically for your platform
@@ -43,15 +43,15 @@ via `optionalDependencies`. Supported: **macOS** (arm64, x64), **Linux** (arm64
 Then from any repo root:
 
 ```sh
-rmnm
+remnem
 ```
 
 ### From source
 
 ```sh
 bun install
-bun run build      # builds the native addon for your host → rmnm.<platform>.node
-bun link           # makes `rmnm` available on your PATH
+bun run build      # builds the native addon for your host → remnem.<platform>.node
+bun link           # makes `remnem` available on your PATH
 ```
 
 ## What it clears
@@ -70,7 +70,7 @@ packages.
 ## Usage
 
 ```
-rmnm [path] [options]
+remnem [path] [options]
 
 Arguments:
   path                 Project root to clean (default: current directory)
@@ -84,14 +84,14 @@ Options:
   -h, --help           Show this help
 ```
 
-By default `rmnm` permanently deletes each `node_modules`, after printing what it
+By default `remnem` permanently deletes each `node_modules`, after printing what it
 found and asking for confirmation (skipped with `-y`, or when stdout isn't a TTY,
 e.g. in CI). Use `-t` to move them to the Trash instead (space reclaimed when you
 empty it), or `-l` to list what would be cleared without touching anything.
 
 ## Workspace resolution
 
-`rmnm` mirrors how bun and pnpm resolve workspace packages:
+`remnem` mirrors how bun and pnpm resolve workspace packages:
 
 | Source | Field | Example |
 | --- | --- | --- |
@@ -116,7 +116,7 @@ A directory only counts as a workspace package when it contains its own
 The napi-rs core is also usable directly from JavaScript:
 
 ```js
-const { clean, resolveWorkspace } = require("rmnm");
+const { clean, resolveWorkspace } = require("remnem");
 
 // Clear every nested node_modules under a root.
 //   trash: false (default) → permanent parallel delete; true → move to Trash.

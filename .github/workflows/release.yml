@@ -1,10 +1,13 @@
 name: Release
 
-# Manually cut a release. Pick the semver bump (or an exact version); this bumps
-# the main package AND every per-platform npm/* sub-package to the same version,
-# commits it with a bare-semver message, and pushes to main. The CI workflow's
-# `publish` job detects that bare-semver commit and publishes everything to npm
-# once all platform builds + tests pass.
+# One-shot release: bump the version, build every platform, and publish — all in
+# a single run. No cross-workflow dispatch (which raced and checked out the wrong
+# commit). The build/publish here mirror CI.yml's build job.
+
+env:
+  DEBUG: napi:*
+  APP_NAME: remnem
+  MACOSX_DEPLOYMENT_TARGET: '10.13'
 
 on:
   workflow_dispatch:
@@ -22,49 +25,43 @@ on:
 
 permissions:
   contents: write
-  actions: write
+  id-token: write
 
 jobs:
   version:
+    name: Bump version
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - name: Setup node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install dependencies
-        run: bun install
+      - run: bun install
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
       - name: Bump version (main + all npm sub-packages)
+        id: bump
         run: |
-          # Bump the root package.json without creating npm's own tag/commit and
-          # WITHOUT running lifecycle scripts. `--ignore-scripts` is essential:
-          # this package has a `version` npm script (`napi version`), which npm
-          # would otherwise run during `npm version` and print `> ...` lines to
-          # stdout, corrupting the captured value.
+          # --ignore-scripts: this package has a `version` npm script (napi
+          # version) that would otherwise print `> ...` lines and corrupt output.
           npm version ${{ inputs.bump }} --no-git-tag-version --ignore-scripts >/dev/null
-          # Read the bumped version straight from package.json (robust — does not
-          # depend on npm's stdout format).
           NEW_VERSION=$(node -p "require('./package.json').version")
-          echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "Bumped to $NEW_VERSION"
-          # `napi version` rewrites every npm/* sub-package's own version to
-          # match the root version.
+          # Sync every npm/* sub-package's own version to the root version.
           bunx napi version
-          # `napi version` does NOT touch the main package's optionalDependencies
-          # ranges, so sync those to the new version too — otherwise the published
-          # main package would depend on the previous version of each platform
-          # package and fail to install.
+          # napi version does NOT touch the main package's optionalDependencies
+          # ranges, so sync those too — else the published main package would
+          # depend on the previous version of each platform package.
           node -e '
             const fs = require("fs");
             const pkg = JSON.parse(fs.readFileSync("./package.json", "utf8"));
@@ -73,17 +70,111 @@ jobs:
             }
             fs.writeFileSync("./package.json", JSON.stringify(pkg, null, 2) + "\n");
           '
-      - name: Commit and push
+      - name: Commit and tag
         run: |
           git add -A
-          # Bare-semver commit message is the signal the CI publish job matches.
-          git commit -m "$NEW_VERSION"
-          git tag "v$NEW_VERSION"
+          git commit -m "${{ steps.bump.outputs.version }}"
+          git tag "v${{ steps.bump.outputs.version }}"
           git push origin HEAD --tags
-      - name: Dispatch the CI build+publish run for this release commit
-        # A push authored by GITHUB_TOKEN does not trigger `on: push`, so kick the
-        # CI workflow off explicitly. CI checks out the ref, sees the bare-semver
-        # HEAD commit message, and publishes.
+
+  build:
+    name: build - ${{ matrix.settings.target }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            build: bun run build --target x86_64-apple-darwin
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            build: bun run build --target aarch64-apple-darwin
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: bun run build --target x86_64-pc-windows-msvc
+          - host: windows-latest
+            target: aarch64-pc-windows-msvc
+            build: bun run build --target aarch64-pc-windows-msvc
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build: bun run build --target x86_64-unknown-linux-gnu --use-napi-cross
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            build: bun run build --target x86_64-unknown-linux-musl -x
+            zig: true
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            build: bun run build --target aarch64-unknown-linux-gnu --use-napi-cross
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            build: bun run build --target aarch64-unknown-linux-musl -x
+            zig: true
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      # Check out the release commit the `version` job just pushed.
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.version.outputs.version }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+      - name: Setup Zig
+        if: ${{ matrix.settings.zig }}
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+      - run: bun install
+      - name: Build
+        run: ${{ matrix.settings.build }}
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: |
+            ${{ env.APP_NAME }}.*.node
+            index.js
+            index.d.ts
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs:
+      - version
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.version.outputs.version }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - run: bun install
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Copy the built binaries into the per-platform npm packages
+        run: bunx napi artifacts --output-dir ./artifacts --npm-dir ./npm
+      - name: List npm packages
+        run: ls -R ./npm
+        shell: bash
+      - name: Publish to npm
+        # `napi pre-publish` publishes the per-platform optionalDependencies
+        # packages; then the main package is published. Auth is the .npmrc that
+        # setup-node wrote from NODE_AUTH_TOKEN.
+        run: |
+          npm config set access public
+          bunx napi pre-publish -t npm
+          npm publish --access public --provenance
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run CI --ref main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

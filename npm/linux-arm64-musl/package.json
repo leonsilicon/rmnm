@@ -1,12 +1,12 @@
 {
-  "name": "@leonsilicon/rmnm-linux-arm64-musl",
+  "name": "remnem-linux-arm64-musl",
   "version": "0.1.4",
   "cpu": [
     "arm64"
   ],
-  "main": "rmnm.linux-arm64-musl.node",
+  "main": "remnem.linux-arm64-musl.node",
   "files": [
-    "rmnm.linux-arm64-musl.node"
+    "remnem.linux-arm64-musl.node"
   ],
   "description": "Find and delete every nested node_modules in a project as fast as possible (napi-rs / Rust)",
   "keywords": [
@@ -22,17 +22,17 @@
     "pnpm"
   ],
   "author": "Leon Si",
-  "homepage": "https://github.com/leonsilicon/rmnm#readme",
+  "homepage": "https://github.com/leonsilicon/remnem#readme",
   "license": "MIT",
   "engines": {
     "node": ">= 18"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/leonsilicon/rmnm.git"
+    "url": "git+https://github.com/leonsilicon/remnem.git"
   },
   "bugs": {
-    "url": "https://github.com/leonsilicon/rmnm/issues"
+    "url": "https://github.com/leonsilicon/remnem/issues"
   },
   "publishConfig": {
     "access": "public"
