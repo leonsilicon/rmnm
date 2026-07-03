@@ -1,6 +1,6 @@
 {
   "name": "remnem",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Find and delete every nested node_modules in a project as fast as possible (napi-rs / Rust)",
   "type": "commonjs",
   "main": "index.js",
@@ -55,14 +55,14 @@
     "node": ">= 18"
   },
   "optionalDependencies": {
-    "@leonsilicon/remnem-darwin-x64": "0.1.6",
-    "@leonsilicon/remnem-darwin-arm64": "0.1.6",
-    "@leonsilicon/remnem-linux-x64-gnu": "0.1.6",
-    "@leonsilicon/remnem-linux-arm64-gnu": "0.1.6",
-    "@leonsilicon/remnem-linux-x64-musl": "0.1.6",
-    "@leonsilicon/remnem-linux-arm64-musl": "0.1.6",
-    "@leonsilicon/remnem-win32-x64-msvc": "0.1.6",
-    "@leonsilicon/remnem-win32-arm64-msvc": "0.1.6"
+    "@leonsilicon/remnem-darwin-x64": "0.1.7",
+    "@leonsilicon/remnem-darwin-arm64": "0.1.7",
+    "@leonsilicon/remnem-linux-x64-gnu": "0.1.7",
+    "@leonsilicon/remnem-linux-arm64-gnu": "0.1.7",
+    "@leonsilicon/remnem-linux-x64-musl": "0.1.7",
+    "@leonsilicon/remnem-linux-arm64-musl": "0.1.7",
+    "@leonsilicon/remnem-win32-x64-msvc": "0.1.7",
+    "@leonsilicon/remnem-win32-arm64-msvc": "0.1.7"
   },
   "publishConfig": {
     "access": "public",
