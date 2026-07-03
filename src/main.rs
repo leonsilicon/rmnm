@@ -3,9 +3,10 @@
 //! `remnem` — delete every nested `node_modules` under a project root, fast.
 //!
 //! A single self-contained binary: scan (a lean parallel directory walk), show
-//! the user what will go, confirm, then dispose of them (permanent removal by
-//! default, or a move to the Trash with `-t`). Sizing (`-m`) and workspace
-//! resolution (`-w`) are extra tree walks, so they are opt-in.
+//! the user what will go, confirm, then dispose of them. The instant default
+//! renames each `node_modules` out of the repo into an OS-temp staging dir and
+//! reclaims the space in a detached background process. Sizing (`-m`) and
+//! workspace resolution (`-w`) are extra tree walks, so they are opt-in.
 
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -23,7 +24,6 @@ Arguments:
   path                 Project root to clean (default: current directory)
 
 Options:
-  -t, --trash          Move to the Trash instead of deleting (recoverable)
   -l, --list           List what would be cleared; touch nothing
   -m, --measure        Size each node_modules (slow: walks every dependency tree)
   -w, --workspace      Also resolve & report the bun/pnpm workspace layout (slow)
@@ -35,13 +35,12 @@ Options:
 Finds every node_modules directory under <path> (root + all workspace packages
 + any nested ones), then deletes them.
 
-By default each node_modules is instantly renamed aside (an O(1) same-volume
-operation) so it is gone from its location immediately — a clean reinstall can
-start right away — while the bytes are reclaimed by a detached background
-process. Pass --sync to block until that reclaim finishes.
-
-With -t, moves them to the Trash instead — recoverable in Finder; the space is
-reclaimed when you empty the Trash.
+By default each node_modules is instantly renamed out of the repository into the
+OS temp directory (an O(1) same-volume operation) so it is gone from its
+location immediately — a clean reinstall can start right away, and nothing is
+left in the tree for git to see — while the bytes are reclaimed by a detached
+background process. Pass --sync to block until that reclaim finishes. (If the
+temp dir is on a different filesystem, remnem deletes in place synchronously.)
 ";
 
 #[derive(Default)]
@@ -50,7 +49,6 @@ struct Opts {
   list: bool,
   measure: bool,
   workspace: bool,
-  trash: bool,
   sync: bool,
   json: bool,
   yes: bool,
@@ -63,7 +61,6 @@ fn parse_args(argv: &[String]) -> Result<Opts, ExitCode> {
     match arg.as_str() {
       "-h" | "--help" => opts.help = true,
       "-l" | "--list" => opts.list = true,
-      "-t" | "--trash" => opts.trash = true,
       "-m" | "--measure" => opts.measure = true,
       "-w" | "--workspace" => opts.workspace = true,
       "--sync" => opts.sync = true,
@@ -88,12 +85,12 @@ fn parse_args(argv: &[String]) -> Result<Opts, ExitCode> {
 fn main() -> ExitCode {
   let argv: Vec<String> = std::env::args().skip(1).collect();
 
-  // Hidden background-reaper subcommand: `remnem __reap <listfile>`. Spawned
-  // detached by the instant delete path to hard-remove the staged directories
+  // Hidden background-reaper subcommand: `remnem __reap <staging-dir>`. Spawned
+  // detached by the instant delete path to hard-remove the staging directory
   // off the critical path. Not part of the public CLI.
   if argv.first().map(String::as_str) == Some("__reap") {
-    if let Some(list) = argv.get(1) {
-      finder::reap(Path::new(list));
+    if let Some(dir) = argv.get(1) {
+      finder::reap(Path::new(dir));
     }
     return ExitCode::SUCCESS;
   }
@@ -131,13 +128,8 @@ fn run(opts: &Opts) -> std::io::Result<ExitCode> {
   // locks — measurably slower than a clean read-only walk followed by a rename
   // pass.)
   let auto_yes = opts.yes || !std::io::stdin().is_terminal();
-  let fast_delete = auto_yes
-    && !opts.list
-    && !opts.trash
-    && !opts.sync
-    && !opts.measure
-    && !opts.workspace
-    && !opts.json;
+  let fast_delete =
+    auto_yes && !opts.list && !opts.sync && !opts.measure && !opts.workspace && !opts.json;
   if fast_delete {
     let scan_start = std::time::Instant::now();
     let found = finder::find(&root, false);
@@ -244,23 +236,14 @@ fn run(opts: &Opts) -> std::io::Result<ExitCode> {
     }
 
     if opts.list {
-      writeln!(
-        out,
-        "\n(list only — nothing {})",
-        if opts.trash { "trashed" } else { "deleted" }
-      )?;
+      writeln!(out, "\n(list only — nothing deleted)")?;
       return Ok(ExitCode::SUCCESS);
     }
 
-    let verb = if opts.trash {
-      "move to Trash"
-    } else {
-      "permanently delete"
-    };
     if !opts.yes
       && !confirm(
         &mut out,
-        &format!("\n{verb} these {count} directories? [y/N] "),
+        &format!("\npermanently delete these {count} directories? [y/N] "),
       )?
     {
       writeln!(out, "aborted.")?;
@@ -272,9 +255,7 @@ fn run(opts: &Opts) -> std::io::Result<ExitCode> {
   drop(out);
 
   // Phase 2: real disposal. Reuse the paths we already found — no second walk.
-  let mode = if opts.trash {
-    Mode::Trash
-  } else if opts.sync {
+  let mode = if opts.sync {
     Mode::RemoveSync
   } else {
     Mode::Remove
@@ -310,40 +291,26 @@ fn report_deletion(
 
   let failed = results.iter().filter(|r| r.error.is_some()).count();
   let done = results.len() - failed;
-  let trashed_count = results.iter().filter(|r| r.trashed).count();
-
-  let action = if !opts.trash {
-    "deleted".to_string()
-  } else if trashed_count == done {
-    "moved to Trash".to_string()
-  } else {
-    format!("moved to Trash ({} hard-deleted)", done - trashed_count)
-  };
 
   if opts.measure {
     writeln!(
       out,
-      "{action}: {done}/{} node_modules ({}) in {elapsed_ms:.0}ms",
+      "deleted: {done}/{} node_modules ({}) in {elapsed_ms:.0}ms",
       results.len(),
       format_bytes(total_bytes)
     )?;
   } else {
     writeln!(
       out,
-      "{action}: {done}/{} node_modules in {elapsed_ms:.0}ms",
+      "deleted: {done}/{} node_modules in {elapsed_ms:.0}ms",
       results.len()
     )?;
   }
 
-  if opts.trash && trashed_count > 0 {
-    writeln!(
-      out,
-      "empty the Trash to reclaim the space (or re-run without -t to delete)."
-    )?;
-  } else if !opts.trash && !opts.sync && done > 0 {
-    // The instant path renames the trees aside and frees the disk in a detached
-    // background process, so `node_modules` is already gone everywhere but the
-    // bytes come back a moment later. (With --sync the bytes are already freed.)
+  if !opts.sync && done > 0 {
+    // The instant path renames the trees out of the repo and frees the disk in a
+    // detached background process, so `node_modules` is already gone everywhere
+    // but the bytes come back a moment later. (With --sync they're already freed.)
     writeln!(out, "(space is being reclaimed in the background)")?;
   }
 
@@ -474,7 +441,7 @@ fn scan_json(
       s.push(',');
     }
     s.push_str(&format!(
-      "\n    {{ \"path\": \"{}\", \"bytes\": {}, \"deleted\": false, \"trashed\": false }}",
+      "\n    {{ \"path\": \"{}\", \"bytes\": {}, \"deleted\": false }}",
       json_escape(&f.path.display().to_string()),
       f.bytes
     ));
@@ -501,10 +468,9 @@ fn delete_json(results: &[finder::DeleteResult]) -> String {
       None => "null".to_string(),
     };
     s.push_str(&format!(
-      "\n    {{ \"path\": \"{}\", \"deleted\": {}, \"trashed\": {}, \"error\": {err} }}",
+      "\n    {{ \"path\": \"{}\", \"deleted\": {}, \"error\": {err} }}",
       json_escape(&r.path.display().to_string()),
       r.error.is_none(),
-      r.trashed
     ));
   }
   if !results.is_empty() {

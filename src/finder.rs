@@ -23,9 +23,12 @@
 //!
 //! # Deleting
 //!
-//! `Mode::Remove` fans the recorded top-level `node_modules` directories across a
-//! rayon pool and `remove_dir_all`s each in parallel. `Mode::Trash` moves each to
-//! the OS Trash (a same-volume rename — effectively instant regardless of size).
+//! `Mode::Remove` (the instant default) renames each `node_modules` out of the
+//! repository into a per-run staging directory under the OS temp dir — an O(1)
+//! metadata op — then a detached background process `remove_dir_all`s the staging
+//! directory so the disk-freeing I/O never blocks. Nothing is ever left inside
+//! the repo tree, so `git` can't see it. `Mode::RemoveSync` skips the staging and
+//! `remove_dir_all`s in place, blocking until the space is actually reclaimed.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -189,91 +192,96 @@ fn size_dir<'scope>(
 pub struct DeleteResult {
   pub path: PathBuf,
   pub error: Option<String>,
-  /// `true` if the directory was moved to the Trash; `false` otherwise (the
-  /// default rename-and-reclaim path, or a hard-remove fallback).
-  pub trashed: bool,
 }
 
 /// How a directory should be disposed of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
   /// **Default, and the reason `remnem` is instant.** Each `node_modules` is
-  /// `rename`d to a hidden sibling in the same parent directory — an O(1)
-  /// same-filesystem metadata operation, no matter how many files the tree
-  /// holds. The moment the rename returns, the `node_modules` is gone from its
-  /// original path, so a clean reinstall can proceed immediately. The renamed
-  /// staging directories are then `remove_dir_all`d by a **detached background
-  /// process** (see [`reap`]), so the actual disk-freeing I/O never blocks the
-  /// foreground. Space is reclaimed within seconds, hands-free — no Trash to
-  /// empty. If a rename fails (e.g. permissions), that one item falls back to a
-  /// synchronous `remove_dir_all`.
+  /// `rename`d out of the repository entirely, into a per-run staging directory
+  /// under the OS temp dir (`$TMPDIR/remnem-<pid>/`). On one filesystem that is
+  /// an O(1) metadata operation no matter how large the tree is. The moment the
+  /// rename returns the `node_modules` is gone from its location — a clean
+  /// reinstall can start immediately — and because the staged copy lives outside
+  /// the repo, it can never be seen by `git status`/`git add`. The staging
+  /// directory is then `remove_dir_all`d by a **detached background process**
+  /// (see [`reap`]), so the disk-freeing I/O never blocks the foreground; space
+  /// comes back within seconds, hands-free. If the temp dir is on a *different*
+  /// filesystem (so `rename` would need a cross-device copy), we fall back to a
+  /// synchronous in-place `remove_dir_all` — never leaving anything in the tree.
   Remove,
   /// Synchronous, blocking `remove_dir_all` — waits until the space is actually
   /// reclaimed. Slower (I/O-bound on huge trees) but self-contained: used by the
   /// background reaper and by callers/tests that must observe the space freed
   /// before returning.
   RemoveSync,
-  /// Move to the OS Trash via the native `trashItemAtURL` API. On the same
-  /// volume this is a directory rename — effectively instant regardless of how
-  /// many files the tree holds — and recoverable in Finder ("Put Back"). Space
-  /// is reclaimed when the Trash is emptied. If trashing fails (e.g. a
-  /// cross-volume item the OS would have to copy, or a permissions issue),
-  /// falls back to a direct `remove_dir_all`.
-  Trash,
 }
 
 /// Dispose of every given directory according to `mode`. Each operation is
-/// independent; an error on one does not stop the others. Whether a directory
-/// was trashed (vs. hard-removed via fallback) is recorded per result.
+/// independent; an error on one does not stop the others.
 pub fn delete_all(dirs: Vec<PathBuf>, mode: Mode) -> Vec<DeleteResult> {
   match mode {
     Mode::Remove => rename_and_reap(dirs),
     Mode::RemoveSync => remove_all_parallel(dirs)
       .into_iter()
-      .map(|(path, error)| DeleteResult {
-        path,
-        error,
-        trashed: false,
-      })
+      .map(|(path, error)| DeleteResult { path, error })
       .collect(),
-    Mode::Trash => trash_all(dirs),
   }
 }
 
-/// The instant path. Rename every `node_modules` out of the way (fast), then
-/// hand the staged directories to a detached background process that hard-deletes
-/// them. Returns as soon as the renames are done — the caller sees every
-/// `node_modules` already gone from its original location.
+/// The instant path. Rename every `node_modules` **out of the repository** into a
+/// per-run staging directory under the OS temp dir, then hand that staging
+/// directory to a detached background process that hard-deletes it. Returns as
+/// soon as the renames are done — the caller sees every `node_modules` already
+/// gone from its location, and nothing is ever left inside the repo tree.
 fn rename_and_reap(dirs: Vec<PathBuf>) -> Vec<DeleteResult> {
   let timing = std::env::var_os("REMNEM_TIMING").is_some();
   let rename_start = std::time::Instant::now();
   let pid = std::process::id();
 
-  let outcomes = parallel_rename(dirs, pid);
+  // Per-run staging root under the OS temp dir. Keeping every staged tree here
+  // (rather than a sibling of the original) means nothing doomed ever appears
+  // inside the repository, so `git status`/`git add` can't pick it up.
+  let staging_root = std::env::temp_dir().join(format!("remnem-{pid}"));
 
-  let mut results = Vec::with_capacity(outcomes.len());
-  let mut staged = Vec::new();
-  for (result, stage) in outcomes {
-    results.push(result);
-    if let Some(s) = stage {
-      staged.push(s);
-    }
+  // If we can't even create the staging root, fall back to a plain synchronous
+  // remove of everything — correctness over speed.
+  if std::fs::create_dir_all(&staging_root).is_err() {
+    return remove_all_parallel(dirs)
+      .into_iter()
+      .map(|(path, error)| DeleteResult { path, error })
+      .collect();
   }
+
+  // Probe once whether the temp dir is on the same filesystem as the targets:
+  // rename the first directory into staging. `EXDEV` (cross-device) means every
+  // rename here would need a slow copy, so we fall back to in-place removal for
+  // the whole batch (still never touching the repo tree).
+  let same_volume = probe_same_volume(&dirs, &staging_root);
+  if !same_volume {
+    let _ = std::fs::remove_dir_all(&staging_root);
+    if timing {
+      eprintln!("[timing]   temp dir cross-volume; hard-removing in place");
+    }
+    return remove_all_parallel(dirs)
+      .into_iter()
+      .map(|(path, error)| DeleteResult { path, error })
+      .collect();
+  }
+
+  let results = parallel_rename(dirs, &staging_root);
   if timing {
     eprintln!(
-      "[timing]   rename: {:.1}ms ({} staged)",
+      "[timing]   rename: {:.1}ms",
       rename_start.elapsed().as_secs_f64() * 1e3,
-      staged.len()
     );
   }
 
-  // Hand the staged dirs to a detached background reaper. If we can't spawn one
-  // (unlikely), delete them synchronously so we never leak disk space.
+  // Hand the whole staging directory to a detached background reaper. If we
+  // can't spawn one (unlikely), delete it synchronously so we never leak space.
   let spawn_start = std::time::Instant::now();
-  if !staged.is_empty() {
-    if let Err(_e) = spawn_reaper(&staged) {
-      let _ = remove_all_parallel(staged);
-    }
+  if let Err(_e) = spawn_reaper(&staging_root) {
+    let _ = std::fs::remove_dir_all(&staging_root);
   }
   if timing {
     eprintln!(
@@ -285,17 +293,57 @@ fn rename_and_reap(dirs: Vec<PathBuf>) -> Vec<DeleteResult> {
   results
 }
 
-/// Rename every directory aside, spreading the work over an **oversubscribed**
-/// thread pool. Renames are I/O-syscall-bound (each blocks on the filesystem's
-/// directory-metadata journal, not the CPU), so running many more threads than
-/// cores hides that latency: on APFS this lifts throughput from ~16k renames/sec
-/// (core-count threads) toward the filesystem's ceiling. We use our own scratch
-/// threads rather than rayon's CPU-sized global pool for exactly this reason.
+/// Decide whether `staging_root` is on the same filesystem as the target dirs by
+/// attempting to rename the first non-vanished target into it. On success the
+/// rename stands (that dir is now staged); the target is renamed back only if we
+/// later decide *not* to proceed — but we always proceed when same-volume, so a
+/// successful probe just means the first item is already staged.
 ///
-/// Work is split into contiguous chunks, one owned by each thread — no shared
-/// state, no locks, no unsafe. The global item index (chunk offset + local
-/// position) seeds each staging name so they stay unique across threads.
-fn parallel_rename(dirs: Vec<PathBuf>, pid: u32) -> Vec<(DeleteResult, Option<PathBuf>)> {
+/// Returns `true` if a rename into `staging_root` succeeds (same volume), `false`
+/// on `EXDEV`/cross-device. A successful probe leaves the first dir renamed into
+/// `staging_root/probe`, which the caller's staging pass and reaper both cover
+/// (the reaper deletes the whole staging root).
+fn probe_same_volume(dirs: &[PathBuf], staging_root: &Path) -> bool {
+  let Some(first) = dirs.iter().find(|d| d.exists()) else {
+    // Nothing to move — treat as same-volume (the empty batch is a no-op).
+    return true;
+  };
+  let probe = staging_root.join("probe");
+  match std::fs::rename(first, &probe) {
+    Ok(()) => {
+      // Move it back so the main pass renames every dir uniformly (and so the
+      // per-dir DeleteResult ordering is produced in one place).
+      let _ = std::fs::rename(&probe, first);
+      true
+    }
+    Err(e) => e.raw_os_error() != Some(libc_exdev()),
+  }
+}
+
+/// `EXDEV` errno — "cross-device link". A `rename` across filesystems fails with
+/// this; anything else (permissions, already-gone) we let the per-item rename
+/// handle so it can fall back individually.
+fn libc_exdev() -> i32 {
+  // 18 on Linux and macOS. Kept as a constant to avoid a libc dependency.
+  18
+}
+
+/// Rename every directory into the staging area, spreading the work over an
+/// **oversubscribed** thread pool. Renames are I/O-syscall-bound (each blocks on
+/// the filesystem's directory-metadata journal, not the CPU), so running many
+/// more threads than cores hides that latency: on APFS this lifts throughput from
+/// ~16k renames/sec (core-count threads) toward the filesystem's ceiling. We use
+/// our own scratch threads rather than rayon's CPU-sized global pool for exactly
+/// this reason.
+///
+/// Each thread renames into **its own shard directory** (`staging_root/<tid>/`).
+/// This matters: a `rename` mutates the *destination* directory's inode, so if
+/// every thread renamed into one shared staging dir they'd serialize on that one
+/// directory lock (measurably slower). Per-thread shards remove that contention
+/// while keeping everything under the temp staging root (so nothing lands in the
+/// repo). Work is split into contiguous chunks, one owned by each thread — no
+/// shared state, no locks, no unsafe.
+fn parallel_rename(dirs: Vec<PathBuf>, staging_root: &Path) -> Vec<DeleteResult> {
   let n = dirs.len();
   if n == 0 {
     return Vec::new();
@@ -308,27 +356,30 @@ fn parallel_rename(dirs: Vec<PathBuf>, pid: u32) -> Vec<(DeleteResult, Option<Pa
   let threads = (cores * 5).clamp(1, 64).min(n);
   let chunk = n.div_ceil(threads);
 
-  // Move each chunk (with its starting global offset) into its own thread.
-  let mut chunks: Vec<(usize, Vec<PathBuf>)> = Vec::with_capacity(threads);
-  let mut offset = 0;
+  // One shard directory per thread, created up front so the threads never race
+  // to create them. Pre-creating is cheap (a handful of mkdirs).
+  let mut chunks: Vec<(PathBuf, Vec<PathBuf>)> = Vec::with_capacity(threads);
+  let mut tid = 0;
   let mut remaining = dirs;
   while !remaining.is_empty() {
     let take = chunk.min(remaining.len());
     let rest = remaining.split_off(take);
-    chunks.push((offset, remaining));
-    offset += take;
+    let shard = staging_root.join(tid.to_string());
+    let _ = std::fs::create_dir(&shard);
+    chunks.push((shard, remaining));
+    tid += 1;
     remaining = rest;
   }
 
-  let mut per_thread: Vec<Vec<(DeleteResult, Option<PathBuf>)>> = std::thread::scope(|scope| {
+  let mut per_thread: Vec<Vec<DeleteResult>> = std::thread::scope(|scope| {
     let handles: Vec<_> = chunks
       .into_iter()
-      .map(|(base, chunk_dirs)| {
+      .map(|(shard, chunk_dirs)| {
         scope.spawn(move || {
           chunk_dirs
             .into_iter()
             .enumerate()
-            .map(|(i, path)| dispose_one(path, pid, base + i))
+            .map(|(i, path)| dispose_one(path, &shard, i))
             .collect::<Vec<_>>()
         })
       })
@@ -337,94 +388,47 @@ fn parallel_rename(dirs: Vec<PathBuf>, pid: u32) -> Vec<(DeleteResult, Option<Pa
   });
 
   // Re-concatenate the per-thread results in order.
-  let mut outcomes = Vec::with_capacity(n);
+  let mut results = Vec::with_capacity(n);
   for chunk in &mut per_thread {
-    outcomes.append(chunk);
+    results.append(chunk);
   }
-  outcomes
+  results
 }
 
-/// Dispose of one directory via the instant rename, with fallbacks. Returns its
-/// [`DeleteResult`] and, on a successful rename, the staging path to reap.
-fn dispose_one(path: PathBuf, pid: u32, idx: usize) -> (DeleteResult, Option<PathBuf>) {
-  let ok = |path, staged| {
-    (
-      DeleteResult {
-        path,
-        error: None,
-        trashed: false,
-      },
-      staged,
-    )
-  };
-  // Fall back to a synchronous remove and report its outcome.
-  let remove = |path: PathBuf| {
-    let error = match std::fs::remove_dir_all(&path) {
-      Ok(()) => None,
-      Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-      Err(e) => Some(e.to_string()),
-    };
-    (
-      DeleteResult {
-        path,
-        error,
-        trashed: false,
-      },
-      None,
-    )
-  };
-
-  match staging_path(&path, pid, idx) {
-    Some(staged) => match std::fs::rename(&path, &staged) {
-      Ok(()) => ok(path, Some(staged)),
-      // Already gone — nothing to reap.
-      Err(e) if e.kind() == std::io::ErrorKind::NotFound => ok(path, None),
-      // Rename failed (permissions, cross-device, etc.): hard-remove instead.
-      Err(_) => remove(path),
-    },
-    // No parent (root) — never a node_modules in practice; remove synchronously.
-    None => remove(path),
+/// Dispose of one directory by renaming it into `shard/<idx>`. On any rename
+/// failure that isn't "already gone" (a late cross-device edge, permissions, …)
+/// fall back to a synchronous in-place `remove_dir_all`, so we always make
+/// progress and never leave the `node_modules` behind in the tree.
+fn dispose_one(path: PathBuf, shard: &Path, idx: usize) -> DeleteResult {
+  let staged = shard.join(idx.to_string());
+  match std::fs::rename(&path, &staged) {
+    Ok(()) => DeleteResult { path, error: None },
+    // Already gone — nothing to do.
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => DeleteResult { path, error: None },
+    Err(_) => {
+      let error = match std::fs::remove_dir_all(&path) {
+        Ok(()) => None,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => Some(e.to_string()),
+      };
+      DeleteResult { path, error }
+    }
   }
-}
-
-/// Derive a hidden sibling staging path for `dir` in its own parent directory,
-/// so the rename is guaranteed to stay on the same filesystem (an O(1) op). E.g.
-/// `a/b/node_modules` → `a/b/.node_modules.remnem-<pid>-<idx>`.
-fn staging_path(dir: &Path, pid: u32, idx: usize) -> Option<PathBuf> {
-  let parent = dir.parent()?;
-  Some(parent.join(format!(".node_modules.remnem-{pid}-{idx}")))
 }
 
 /// Spawn a detached child process that hard-deletes the staged directories in
 /// the background, then exits — so the disk-freeing I/O never blocks `remnem`.
 ///
-/// The staged paths are passed via a temp list file (there can be thousands,
-/// too many for a command line) which the reaper reads and then removes. The
-/// child is fully detached: new session, no controlling terminal, stdio to
-/// /dev/null, so it outlives the parent shell without holding it open.
-fn spawn_reaper(staged: &[PathBuf]) -> std::io::Result<()> {
-  use std::io::Write;
-
-  // Write the list of staged dirs to a temp file, one path per line.
-  let list_path = std::env::temp_dir().join(format!(
-    "remnem-reap-{}-{}.txt",
-    std::process::id(),
-    reap_nonce()
-  ));
-  {
-    let mut f = std::fs::File::create(&list_path)?;
-    for p in staged {
-      f.write_all(p.as_os_str().as_encoded_bytes())?;
-      f.write_all(b"\n")?;
-    }
-    f.flush()?;
-  }
-
+/// The whole per-run staging directory is passed as a single argument; the reaper
+/// `remove_dir_all`s it. The child is fully detached: new session, no controlling
+/// terminal, stdio to /dev/null, so it outlives the parent shell without holding
+/// it open.
+fn spawn_reaper(staging_root: &Path) -> std::io::Result<()> {
   let exe = std::env::current_exe()?;
   let mut cmd = std::process::Command::new(exe);
   cmd
     .arg("__reap")
-    .arg(&list_path)
+    .arg(staging_root)
     .stdin(std::process::Stdio::null())
     .stdout(std::process::Stdio::null())
     .stderr(std::process::Stdio::null());
@@ -448,16 +452,6 @@ fn spawn_reaper(staged: &[PathBuf]) -> std::io::Result<()> {
   Ok(())
 }
 
-/// A small nonce for the reap-list filename, avoiding `Math.random`/time deps.
-/// Uniqueness only has to hold among concurrent `remnem` runs of the same pid,
-/// which never collide (pid is already unique per run); a monotonic counter
-/// distinguishes multiple disposals within one run.
-fn reap_nonce() -> u64 {
-  use std::sync::atomic::{AtomicU64, Ordering};
-  static COUNTER: AtomicU64 = AtomicU64::new(0);
-  COUNTER.fetch_add(1, Ordering::Relaxed)
-}
-
 /// `setsid(2)` via a tiny extern binding so we don't pull in the whole `libc`
 /// crate for one call. Detaches the reaper into its own session.
 #[cfg(unix)]
@@ -472,20 +466,17 @@ fn libc_setsid() {
   }
 }
 
-/// Read a reap-list file and hard-delete every directory it names, in parallel,
-/// then remove the list file. This is the body of the detached `__reap`
-/// subcommand. Errors are ignored — the reaper is best-effort background cleanup.
-pub fn reap(list_path: &Path) {
-  let Ok(text) = std::fs::read_to_string(list_path) else {
-    return;
+/// Hard-delete the staging directory (recursively, in parallel over its immediate
+/// children). This is the body of the detached `__reap` subcommand; errors are
+/// ignored — the reaper is best-effort background cleanup.
+pub fn reap(staging_root: &Path) {
+  // Delete each staged tree in parallel, then the (now-empty) staging root.
+  let children: Vec<PathBuf> = match std::fs::read_dir(staging_root) {
+    Ok(rd) => rd.flatten().map(|e| e.path()).collect(),
+    Err(_) => return,
   };
-  let dirs: Vec<PathBuf> = text
-    .lines()
-    .filter(|l| !l.is_empty())
-    .map(PathBuf::from)
-    .collect();
-  let _ = remove_all_parallel(dirs);
-  let _ = std::fs::remove_file(list_path);
+  let _ = remove_all_parallel(children);
+  let _ = std::fs::remove_dir_all(staging_root);
 }
 
 fn remove_all_parallel(dirs: Vec<PathBuf>) -> Vec<(PathBuf, Option<String>)> {
@@ -500,59 +491,6 @@ fn remove_all_parallel(dirs: Vec<PathBuf>) -> Vec<(PathBuf, Option<String>)> {
         Err(e) => Some(e.to_string()),
       };
       (path, error)
-    })
-    .collect()
-}
-
-/// Build a `TrashContext`. On macOS we opt into the `NsFileManager` backend —
-/// it calls `trashItemAtURL` directly, which is faster than the default
-/// Finder/osascript path and silent (no delete sound), while still recording
-/// the "Put Back" metadata. On Linux (freedesktop) and Windows the default
-/// backend is already the fast native trash, so no tuning is needed.
-#[cfg(target_os = "macos")]
-fn new_trash_context() -> trash::TrashContext {
-  use trash::macos::{DeleteMethod, TrashContextExtMacos};
-  let mut ctx = trash::TrashContext::default();
-  ctx.set_delete_method(DeleteMethod::NsFileManager);
-  ctx
-}
-
-#[cfg(not(target_os = "macos"))]
-fn new_trash_context() -> trash::TrashContext {
-  trash::TrashContext::default()
-}
-
-/// Move each directory to the OS Trash. Trashing is a single native call per
-/// item and, for same-volume items, an O(1) rename — so this runs fast without
-/// a thread pool. Any item the native trash call rejects falls back to a direct
-/// removal so `remnem` always makes progress.
-fn trash_all(dirs: Vec<PathBuf>) -> Vec<DeleteResult> {
-  let ctx = new_trash_context();
-
-  dirs
-    .into_iter()
-    .map(|path| match ctx.delete(&path) {
-      Ok(()) => DeleteResult {
-        path,
-        error: None,
-        trashed: true,
-      },
-      Err(trash_err) => {
-        // Trash rejected it (cross-volume copy cost, unsupported location,
-        // etc.) — reclaim the space directly instead of failing.
-        let error = match std::fs::remove_dir_all(&path) {
-          Ok(()) => None,
-          Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-          Err(rm_err) => Some(format!(
-            "trash failed ({trash_err}) and remove failed ({rm_err})"
-          )),
-        };
-        DeleteResult {
-          path,
-          error,
-          trashed: false,
-        }
-      }
     })
     .collect()
 }

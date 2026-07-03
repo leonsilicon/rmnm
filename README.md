@@ -28,25 +28,24 @@ monorepo). remnem sidesteps that on the critical path:
    never descends *into* a `node_modules` (the whole subtree is going anyway).
    So the walk is proportional to your *source* tree, not the installed
    dependency tree.
-2. **Rename aside** — each `node_modules` is `rename`d to a hidden sibling in the
-   same directory. On one filesystem that is an O(1) metadata operation no matter
-   how large the tree is. The instant it returns, `node_modules` is gone from its
-   location — **a clean reinstall can start immediately**.
+2. **Rename out of the repo** — each `node_modules` is `rename`d out of the
+   repository entirely, into a per-run staging directory under the OS temp dir
+   (`$TMPDIR/remnem-<pid>/`). On one filesystem that is an O(1) metadata
+   operation no matter how large the tree is. The instant it returns,
+   `node_modules` is gone from its location — **a clean reinstall can start
+   immediately** — and because the staged copy lives outside the repo, it can
+   never be picked up by `git status` / `git add`.
 3. **Reclaim in the background** — a detached background process `rm -rf`s the
-   renamed directories, so the disk-freeing I/O never blocks you. Space comes
-   back within a few seconds, hands-free.
+   staging directory, so the disk-freeing I/O never blocks you. Space comes back
+   within a few seconds, hands-free.
 
 Pass **`--sync`** if you'd rather block until the space is actually reclaimed
-(e.g. a script that measures free disk right after).
+(e.g. a script that measures free disk right after) — that mode deletes in place
+instead of staging.
 
-## Delete vs. Trash
-
-By default `remnem` **permanently deletes** (via the instant rename-then-reap
-above). Pass **`-t` / `--trash`** to move each `node_modules` to the OS trash
-instead (Finder Trash on macOS, the freedesktop trash on Linux, the Recycle Bin
-on Windows) — recoverable from the trash, with the space reclaimed when you empty
-it. A `node_modules` on a *different* volume (rare) can't be renamed instantly, so
-those fall back to a direct delete.
+If the OS temp dir happens to be on a *different* filesystem than the repo (so a
+`rename` would need a slow cross-device copy), remnem detects it and falls back
+to a synchronous in-place delete — still never leaving anything in the tree.
 
 ## Install
 
@@ -88,7 +87,6 @@ Arguments:
   path                 Project root to clean (default: current directory)
 
 Options:
-  -t, --trash          Move to the Trash instead of deleting (recoverable)
   -l, --list           List what would be cleared; touch nothing
   -m, --measure        Size each node_modules (slow: walks every dependency tree)
   -w, --workspace      Also resolve & report the bun/pnpm workspace layout (slow)
@@ -100,8 +98,8 @@ Options:
 
 By default `remnem` deletes each `node_modules` after printing what it found and
 asking for confirmation (skipped with `-y`, or when stdin isn't a TTY, e.g. in
-CI). Use `-l` to list without touching anything, `-t` to move to the Trash, or
-`--sync` to wait for the space to be reclaimed.
+CI). Use `-l` to list without touching anything, or `--sync` to wait for the
+space to be reclaimed before returning.
 
 Sizing (`-m`) and workspace-layout resolution (`-w`) each require an extra tree
 walk, so they are **off by default** — the fast path does neither.
