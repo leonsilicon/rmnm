@@ -1,6 +1,6 @@
 {
   "name": "@leonsilicon/rmnm",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Find and delete every nested node_modules in a project as fast as possible (napi-rs / Rust)",
   "type": "commonjs",
   "main": "index.js",
@@ -54,14 +54,14 @@
     "node": ">= 18"
   },
   "optionalDependencies": {
-    "@leonsilicon/rmnm-darwin-x64": "0.1.3",
-    "@leonsilicon/rmnm-darwin-arm64": "0.1.3",
-    "@leonsilicon/rmnm-linux-x64-gnu": "0.1.3",
-    "@leonsilicon/rmnm-linux-arm64-gnu": "0.1.3",
-    "@leonsilicon/rmnm-linux-x64-musl": "0.1.3",
-    "@leonsilicon/rmnm-linux-arm64-musl": "0.1.3",
-    "@leonsilicon/rmnm-win32-x64-msvc": "0.1.3",
-    "@leonsilicon/rmnm-win32-arm64-msvc": "0.1.3"
+    "@leonsilicon/rmnm-darwin-x64": "0.1.4",
+    "@leonsilicon/rmnm-darwin-arm64": "0.1.4",
+    "@leonsilicon/rmnm-linux-x64-gnu": "0.1.4",
+    "@leonsilicon/rmnm-linux-arm64-gnu": "0.1.4",
+    "@leonsilicon/rmnm-linux-x64-musl": "0.1.4",
+    "@leonsilicon/rmnm-linux-arm64-musl": "0.1.4",
+    "@leonsilicon/rmnm-win32-x64-msvc": "0.1.4",
+    "@leonsilicon/rmnm-win32-arm64-msvc": "0.1.4"
   },
   "publishConfig": {
     "access": "public",
